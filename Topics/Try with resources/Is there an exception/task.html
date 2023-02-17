@@ -1,0 +1,18 @@
+<h2>Is there an exception?</h2>
+<p>What exception may occur here that we won't be able to catch while executing the code?</p>
+
+<pre><code class="language-java">try (Scanner scanner = new Scanner(new File("test.txt"))) {
+
+    int number = scanner.nextInt();
+
+    System.out.println(number * 100);
+
+} catch (FileNotFoundException e) {
+    e.printStackTrace();
+} finally {
+    System.out.println("Finally part");
+}</code></pre>
+
+<p>If you think that there is no such exception, write "<strong>0</strong>".</p>
+
+<p>Otherwise, write the name of the exception <em>without </em>packages.</p>

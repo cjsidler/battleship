@@ -1,0 +1,96 @@
+<h2>Try with resources</h2>
+<html><body><p>We have mentioned that <strong>input streams</strong> should be closed after they were used. Let's discuss what happens when you're working with outside resources: how closing can be performed and why it is important.</p>
+<h5 id="why-close">Why close?</h5>
+<p>When an<strong> </strong>input stream is created, the JVM notifies the OS about its intention to work with a file. If the JVM process has enough permissions and everything is fine, the OS returns a <strong>file descriptor</strong> — a special indicator used by a process to access the file. The problem is that the number of file descriptors is limited. This is a reason why it is important to notify the OS that the job is done and the file descriptor that is held can be released for further reusing. In previous examples, we invoked the method <code class="language-java">close</code> for this purpose. Once it is called, the JVM releases all system resources associated with the stream.</p>
+<h5 id="pitfalls">Pitfalls</h5>
+<p>Resource releasing works if the JVM calls the <code class="language-java">close</code> method, but it is possible that the method will not be called at all.</p>
+<p>Look at the example:</p>
+<pre><code class="language-java">Reader reader = new FileReader("file.txt");
+// code which may throw an exception
+reader.close();</code></pre>
+<p>Suppose something goes wrong before the <code class="language-java">close</code> invocation and an exception is thrown. It leads to a situation in which the method will never be called and system resources won't be released. It is possible to solve the problem by using the <strong>try-catch-finally</strong> construction:</p>
+<pre><code class="language-java">Reader reader = null;
+
+try {
+    reader = new FileReader("file.txt");
+    // code which may throw an exception
+} finally {
+    reader.close();
+}</code></pre>
+<p>In this and the following examples, we assume that <code class="language-java">file.txt</code> exists and do not check the instance of <code class="language-java">Reader</code> for <code class="language-java">null</code> in the <code class="language-java">finally</code> block. It is done to keep the code snippet as simple as possible, but it is not safe in the case of a real application.</p>
+<p>Thrown exceptions cannot affect the invocation of the <code class="language-java">close</code> method now.</p>
+<p>Unfortunately, this solution still has some problems. That is, the <code class="language-java">close</code> method can potentially raise exceptions itself. Suppose, now there are two exceptions: the first was raised inside the <code class="language-java">try</code><em> </em>section, and the second was thrown by the <code class="language-java">finally</code><em> </em>section. It leads to the loss of the first exception. Let's see why this happens:</p>
+<pre><code class="language-java">void readFile() throws IOException {
+    Reader reader = null;
+    try {
+        reader = new FileReader("file.txt");
+        throw new RuntimeException("Exception1");
+    } finally {
+        reader.close(); // throws new RuntimeException("Exception2")
+    }
+}</code></pre>
+<p>First, the <code class="language-java">try</code><em> </em>block throws an exception. As we know, the <code class="language-java">finally</code> block is invoked anyway. In our example, now the <code class="language-java">close</code> method throws an exception. When two exceptions occur, which one is thrown outside the method? It will be the last one: <code class="language-java">Exception2</code> in our case. It means we will never know that the <code class="language-java">try</code><em> </em>block raised an exception at all.</p>
+<p>Let's try to reason and fix this. Ok, we don't want to lose the first exception, so we upgrade the code a little bit and handle <code class="language-java">Exception2</code> right after it was thrown:</p>
+<pre><code class="language-java">void readFile() throws IOException {
+    Reader reader = null;
+    try {
+        reader = new FileReader("file.txt");
+        throw new RuntimeException("Exception1");
+    } finally {
+        try {
+            reader.close(); // throws new RuntimeException("Exception2")
+        } catch (Exception e) {
+            // handle the Exception2
+        }
+    }
+}</code></pre>
+<p>Now, the piece of code throws <code class="language-java">Exception1</code> outside. It may be correct, but we still do not save information on both exceptions, and sometimes we don't want to lose it. So now, let's see how we can handle this situation nicely.</p>
+<h5 id="solution">Solution</h5>
+<p>A simple and reliable way called <strong>try-with-resources</strong> was introduced in Java 7.</p>
+<pre><code class="language-java">try (Reader reader = new FileReader("file.txt")) {
+    // some code
+}</code></pre>
+<p>This construction has two parts enclosed by round and curly brackets. Round brackets contain statements that create an input stream instance. It is possible to create several objects as well. The code below is also fine:</p>
+<pre><code class="language-java">try (Reader reader1 = new FileReader("file1.txt");
+     Reader reader2 = new FileReader("file2.txt")) {
+    // some code
+}</code></pre>
+<p>The second part just contains some code for dealing with the object that was created in the first part.</p>
+<p>As you see, there are no explicit calls of the <code class="language-java">close</code> method at all. It is implicitly invoked for all objects declared in the first part. The construction guarantees closing all resources in a proper way.</p>
+<p>Since Java 9, you may initialize an input stream outside the construction and then declare it in round brackets:</p>
+<pre><code class="language-java">Reader reader = new FileReader("file.txt");
+try (reader) {
+    // some code
+}</code></pre>
+<p></p><div class="alert alert-primary">Surely we do our best to write error-free programs. However, it is difficult to foresee all possible problems. The best practice is to wrap any code dealing with system resources by the try-with-resources construction</div><p></p>
+<p>You may also use<strong> </strong>try-with-resources as a part of try-catch-finally like this:</p>
+<pre><code class="language-java">try (Reader reader = new FileReader("file.txt")) {
+    // some code
+} catch(IOException e) {
+    ...
+} finally {
+    ...
+}</code></pre>
+<p> Now let's go back to our two-exceptions case. If both the <code class="language-java">try</code> block and <code class="language-java">close</code> method throw exceptions <code class="language-java">Exception1</code> and <code class="language-java">Exception2</code>:</p>
+<pre><code class="language-java">void readFile() throws IOException {
+    try (Reader reader = new FileReader("file.txt")) {
+        throw new RuntimeException("Exception1");
+    }
+}</code></pre>
+<p>the method throws the resulting exception, which comprises information on both exceptions. It looks like this:</p>
+<pre><code class="language-java">Exception in thread "main" java.lang.RuntimeException: Exception1
+	at ...
+	Suppressed: java.lang.RuntimeException: Exception2
+		at ...</code></pre>
+<h5 id="closeable-resources">Closeable resources</h5>
+<p>We have dealt with a file input stream to demonstrate how try-with-resources is used. However, not only resources based on files should be released. Closing is crucial for other outside sources like web or database connections. Classes that handle them have a  <code class="language-java">close</code> method and therefore can be wrapped by the try-with-resources statement.</p>
+<p>For example, let's consider <code class="language-java">java.util.Scanner</code>. Earlier we used <code class="language-java">Scanner</code> for reading data from the standard input, but it can read data from a file as well. <code class="language-java">Scanner</code> has a <code class="language-java">close</code> method for releasing outside sources.</p>
+<p>Let's consider an example of a program that reads two integers separated by a space from a file and prints them:</p>
+<pre><code class="language-java">try (Scanner scanner = new Scanner(new File("file.txt"))) {
+    int first = scanner.nextInt();
+    int second = scanner.nextInt();
+    System.out.println("arguments: " + first + " " + second);
+}</code></pre>
+<p>Suppose something went wrong and the file content is <code class="language-java">123 not_number</code>, where the second argument is a <code class="language-java">String</code>. It leads to a <code class="language-java">java.util.InputMismatchException</code> while parsing the second argument. Try-with-resources guarantees that file-related resources are released properly.</p>
+<h5 id="conclusion">Conclusion</h5>
+<p>Inappropriate resource handling may lead to serious problems. Resources associated with files, web, database, or other outside sources should be released after being used. Standard library classes dealing with outside sources have a <code class="language-java">close</code> method for that purpose. Sometimes releasing resources in a proper way may get complicated. To simplify the process, Java 7 introduced the try-with-resources construction that does all the work for you. Do not forget to use it when you're dealing with system resources.</p></body></html>
